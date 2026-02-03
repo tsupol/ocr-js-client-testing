@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm create:*)",
+      "Bash(npm install)",
+      "Bash(npx tsc:*)",
+      "Bash(cmd.exe /c \"npm install\")",
+      "Bash(cmd.exe /c \"npm install tesseract.js\")"
+    ]
+  }
+}

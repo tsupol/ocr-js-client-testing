@@ -1,0 +1,148 @@
+@import "tailwindcss";
+
+@theme static {
+    --color-danger: #d50303;
+    --color-danger-hover: #ff6363;
+    --color-danger-fade: #b23030;
+    --color-danger-contrast: #ffffff;
+
+    --color-success: #008000;
+    --color-success-hover: #66ff66;
+    --color-success-fade: #006600;
+    --color-success-contrast: #ffffff;
+
+    --color-warning: #ff9900;
+    --color-warning-hover: #ffff66;
+    --color-warning-fade: #cc8000;
+    --color-warning-contrast: #000000;
+
+    --color-info: #0070f3;
+    --color-info-hover: #66b3ff;
+    --color-info-fade: #005bb5;
+    --color-info-contrast: #ffffff;
+
+    --spacing-main-sidebar: 10rem;
+    --spacing-mini-sidebar: 2.5rem;
+    --spacing-card: 1rem;
+
+    --color-fg: #cccccc;
+    --color-fg-contrast: #000000;
+    --color-bg: #151515;
+    --color-bg-contrast: #ffffff;
+
+    --color-line: rgba(222, 220, 209, 0.12);
+    --color-link: #0070f3;
+
+    --color-surface: #202020;
+    --color-surface-hover: #2a2a2a;
+    --color-surface-shallow: #111111;
+    --color-surface-elevated: #303030;
+
+    --spacing-line: 1px;
+
+    --color-primary: #0070f3;
+    --color-primary-hover: #005bb5;
+    --color-primary-active: #004c9b;
+    --color-primary-contrast: #ffffff;
+    --color-primary-light: rgba(0, 112, 243, 0.1);
+
+    --color-secondary: #8200ff;
+    --color-secondary-hover: #6800cc;
+    --color-secondary-active: #5300a8;
+    --color-secondary-contrast: #ffffff;
+
+    --spacing-control-y: 0.625rem;
+    --spacing-control-x: 1rem;
+    --spacing-label-x: 0.25rem;
+    --spacing-control-compact-y: .25rem;
+    --spacing-control-compact-x: .5rem;
+    --spacing-control-relaxed-y: 1rem;
+    --spacing-control-relaxed-x: 1.5rem;
+    --radius-control: .5rem;
+
+    --color-control-text: var(--color-fg);
+    --text-control: 1rem;
+    --text-control--letter-spacing: 0em;
+    --text-control--line-height: 1.5;
+    --text-control--font-weight: 400;
+
+    --spacing-option-y: 0.5rem;
+    --spacing-option-x: 1rem;
+    --radius-option: .5rem;
+    --text-option: .825rem;
+    --text-option--letter-spacing: 0em;
+    --text-option--line-height: 1.5;
+
+    --space-scrollbar-track: .5rem;
+    --color-scrollbar-track: rgba(125, 125, 125, 0.1);
+    --color-scrollbar-thumb: rgba(125, 125, 125, 0.25);
+    --color-control-bg: transparent;
+    --color-control-placeholder: #676767;
+    --text-control-placeholder: 1rem;
+    --text-control-placeholder--font-weight: 400;
+    --text-control-placeholder--letter-spacing: 0em;
+    --text-control-placeholder--line-height: 1.5;
+    --text-control-placeholder--font-style: italic;
+
+    --color-control-label: #888888;
+    --text-control-label: 0.875rem;
+    --text-control-label--letter-spacing: 0em;
+    --text-control-label--line-height: 1.5;
+    --text-control-label--font-weight: 600;
+
+    --text-title: 1.25rem;
+    --text-title--letter-spacing: -0.025em;
+    --text-title--line-height: 1.25;
+    --text-title--font-weight: 600;
+    --spacing-title-y: .75rem;
+    --spacing-title-x: 1rem;
+    --spacing-title-h: calc(var(--spacing-title-y) * 2 + var(--text-title) * var(--text-title--line-height));
+
+    --text-base: 1rem;
+    --text-base--letter-spacing: 0em;
+    --text-base--line-height: 1.5;
+    --text-base--font-weight: 400;
+
+    --font-weight-button: 600;
+
+    --spacing-nav: 3rem;
+
+    --spacing-side-menu: 280px;
+    --spacing-side-menu-min: 3.075rem;
+
+    --color-item-bg: #1F1E1D;
+    --color-item-fg: #aaaaaa;
+    --color-item-border: var(--color-item-bg);
+
+    --color-item-hover-bg: #000000;
+    --color-item-hover-fg: var(--color-item-fg);
+    --color-item-hover-border: var(--color-item-hover-bg);
+
+    --color-item-active-bg: var(--color-primary);
+    --color-item-active-fg: var(--color-primary-contrast);
+    --color-item-active-border: var(--color-primary);
+}
+
+html, body {
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-family: "Inter", "Roboto", "Manrope", "DM Sans", sans-serif;
+    font-size: var(--text-base);
+    width: 100vw;
+    line-height: var(--text-base--line-height);
+    overflow-x: hidden;
+}
+
+#root {
+    width: 100vw;
+}
+
+.page-content {
+    padding: 1rem 0;
+}
+
+@media (min-width: 768px) {
+    .page-content {
+        padding: 1rem 2rem;
+    }
+}
