@@ -1,7 +1,8 @@
 import { useState, useRef } from 'react';
 import { BrowserRouter, Routes, Route, Link, useNavigate } from 'react-router-dom';
-import { Home, FileText, Settings, HelpCircle, LogOut, ChevronRight, ScanText } from 'lucide-react';
+import { Home, FileText, Settings, HelpCircle, LogOut, ChevronRight, ScanText, Camera } from 'lucide-react';
 import { OcrTestPage } from './pages/OcrTestPage';
+import { CameraOcrPage } from './pages/CameraOcrPage';
 import { SideMenu, PopOver, ModalProvider, SnackbarProvider, useSnackbarContext } from 'tsp-form';
 import { clsx } from 'clsx';
 
@@ -137,6 +138,7 @@ const SideNav = () => {
   const menuItems = [
     { icon: <Home size="1rem"/>, label: "Dashboard", to: '/' },
     { icon: <ScanText size="1rem"/>, label: "OCR Test", to: '/ocr-test' },
+    { icon: <Camera size="1rem"/>, label: "Camera OCR", to: '/camera-ocr' },
     { icon: <FileText size="1rem"/>, label: "Documents", to: '/docs' },
   ];
 
@@ -215,6 +217,7 @@ function App() {
               <Routes>
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/ocr-test" element={<OcrTestPage />} />
+                <Route path="/camera-ocr" element={<CameraOcrPage />} />
                 <Route path="/docs" element={<Documents />} />
               </Routes>
             </div>
