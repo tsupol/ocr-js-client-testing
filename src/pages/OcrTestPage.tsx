@@ -2,13 +2,15 @@ import { useState } from 'react';
 import Tesseract from 'tesseract.js';
 import { Button, Select, ProgressBar } from 'tsp-form';
 
-const testImages = [
-  { value: '/test-cid-cards/F23CAA4B-CC9B-4EC8-8ED8-48AA8465949B.jpg', label: 'F23CAA4B-CC9B-4EC8-8ED8-48AA8465949B.jpg' },
-  { value: '/test-cid-cards/S__6045713.jpg', label: 'S__6045713.jpg' },
-];
+const imageFiles = import.meta.glob('/public/test-cid-cards/*.(jpg|jpeg|png|gif|webp)', { eager: true, as: 'url' });
+
+const testImages = Object.entries(imageFiles).map(([path, url]) => {
+  const filename = path.split('/').pop() || path;
+  return { value: url as string, label: filename };
+});
 
 export function OcrTestPage() {
-  const [selectedImage, setSelectedImage] = useState<string | null>(testImages[0].value);
+  const [selectedImage, setSelectedImage] = useState<string | null>(testImages[0]?.value || null);
   const [ocrResult, setOcrResult] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
