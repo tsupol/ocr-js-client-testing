@@ -139,7 +139,7 @@ export function OcrDebugPage() {
     setSrcInfo(`${img.naturalWidth}x${img.naturalHeight}`);
 
     // Resize to max 1200px width for detection (balance speed vs accuracy)
-    const DETECT_MAX_WIDTH = 1200;
+    const DETECT_MAX_WIDTH = 1600;
     const detectScale = Math.min(1, DETECT_MAX_WIDTH / img.naturalWidth);
     canvas.width = Math.round(img.naturalWidth * detectScale);
     canvas.height = Math.round(img.naturalHeight * detectScale);
@@ -157,41 +157,67 @@ export function OcrDebugPage() {
     const detectResult = await workerRef.current.recognize(fullImageData, {}, { blocks: true });
 
     // Extract words from blocks with their bboxes
-    const allWords: Array<{ text: string; bbox: { x0: number; y0: number; x1: number; y1: number } }> = [];
-    const allLines: Array<{ text: string; bbox: { x0: number; y0: number; x1: number; y1: number } }> = [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const allLines: Array<{ text: string; bbox: { x0: number; y0: number; x1: number; y1: number }; rowAttributes?: any; words: Array<{ text: string; bbox: { x0: number; y0: number; x1: number; y1: number }; font_size?: number }> }> = [];
 
     if (detectResult.data.blocks) {
       for (const block of detectResult.data.blocks) {
         for (const para of block.paragraphs || []) {
           for (const line of para.lines || []) {
-            allLines.push({ text: line.text, bbox: line.bbox });
-            for (const word of line.words || []) {
-              allWords.push({ text: word.text, bbox: word.bbox });
-            }
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const lineAny = line as any;
+            allLines.push({
+              text: line.text,
+              bbox: line.bbox,
+              rowAttributes: lineAny.rowAttributes,
+              words: (line.words || []).map(w => ({
+                text: w.text,
+                bbox: w.bbox,
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                font_size: (w as any).font_size,
+              })),
+            });
           }
         }
       }
     }
 
-    console.log('All words:', allWords.map(w => `"${w.text}" at ${w.bbox.x0},${w.bbox.y0}`));
-    console.log('All lines:', allLines.map(l => `"${l.text}" at ${l.bbox.x0},${l.bbox.y0}`));
+    // Log line and word details
+    for (const line of allLines) {
+      console.log(`Line: "${line.text}" rowAttributes:`, line.rowAttributes);
+      for (const word of line.words) {
+        const h = word.bbox.y1 - word.bbox.y0;
+        console.log(`  Word: "${word.text}" height=${h}px font_size=${word.font_size}`);
+      }
+    }
 
-    // Find line containing "serial" - the line bbox spans the full width including the value
+    // Find line containing "serial"
     const serialLine = allLines.find(l => l.text.toLowerCase().includes('serial'));
+
+    // Find "Serial" or "Serial Number" label words to get label width
+    const serialWords = serialLine?.words.filter(w =>
+      w.text.toLowerCase() === 'serial' || w.text.toLowerCase() === 'number'
+    ) || [];
+    const labelStartX = serialWords.length > 0 ? Math.min(...serialWords.map(w => w.bbox.x0)) : serialLine?.bbox.x0 || 0;
+    const labelEndX = serialWords.length > 0 ? Math.max(...serialWords.map(w => w.bbox.x1)) : serialLine?.bbox.x0 || 0;
+    const labelWidth = labelEndX - labelStartX;
+
+    // Get font size: prefer rowAttributes.row_height, fallback to word.font_size
+    const fontSize = serialLine?.rowAttributes?.row_height
+      || serialWords[0]?.font_size
+      || (serialLine ? serialLine.bbox.y1 - serialLine.bbox.y0 : 30);
 
     setDetectedLabel(
       serialLine
-        ? `Line: "${serialLine.text}" bbox: x0=${Math.round(serialLine.bbox.x0)} x1=${Math.round(serialLine.bbox.x1)} w=${Math.round(serialLine.bbox.x1 - serialLine.bbox.x0)}`
+        ? `Line: "${serialLine.text}" labelW=${Math.round(labelWidth)} fontSize=${fontSize} rowAttr=${JSON.stringify(serialLine.rowAttributes)}`
         : `Not found. Lines: ${allLines.map(l => l.text).join(' | ')}`
     );
 
-    const labelBbox = serialLine?.bbox;
-
-    if (!labelBbox) {
+    if (!serialLine) {
       const endTime = performance.now();
       setOcrTime(Math.round(endTime - startTime));
       setStatus('Could not find "Serial" label');
-      setOcrResult(`Words: ${allWords.map(w => w.text).join(', ')}\nLines: ${allLines.map(l => l.text).join(' | ')}\n\n${detectResult.data.text}`);
+      setOcrResult(`Lines: ${allLines.map(l => l.text).join(' | ')}\n\n${detectResult.data.text}`);
       setSerialResult('Not found');
       setCanvasDataUrl('');
       setProcessing(false);
@@ -203,39 +229,23 @@ export function OcrDebugPage() {
 
     // Scale bbox from detection size back to original image size
     const bboxScale = 1 / detectScale;
-    const bbox = {
-      x0: labelBbox.x0 * bboxScale,
-      y0: labelBbox.y0 * bboxScale,
-      x1: labelBbox.x1 * bboxScale,
-      y1: labelBbox.y1 * bboxScale,
-    };
-
-    // The line bbox only covers "Serial Number" label
-    // We need to extend to the right to capture the value
-    const lineW = bbox.x1 - bbox.x0;
-    const lineH = bbox.y1 - bbox.y0;
+    const lineH = (serialLine.bbox.y1 - serialLine.bbox.y0) * bboxScale;
     const padding = lineH * 0.5;
 
-    // Crop: start at label, extend to right edge of image to capture value
-    const cropX = Math.max(0, bbox.x0 - padding);
-    const cropY = Math.max(0, bbox.y0 - padding);
-    const cropW = img.naturalWidth - cropX; // extend to right edge
+    // Crop starting from label, extend 3x label width to capture value
+    const cropX = Math.max(0, labelStartX * bboxScale - padding);
+    const cropY = Math.max(0, serialLine.bbox.y0 * bboxScale - padding);
+    const cropW = labelWidth * bboxScale * 3 + padding * 2;
     const cropH = lineH + padding * 2;
 
-    // Scale to target height, but cap max dimensions
-    const TARGET_HEIGHT = 600;
-    const MAX_WIDTH = 2000;
-    let ocrScale = Math.max(1, TARGET_HEIGHT / cropH);
-
-    // Cap width if too large
-    if (cropW * ocrScale > MAX_WIDTH) {
-      ocrScale = MAX_WIDTH / cropW;
-    }
+    // Scale based on font size - target 168px font for good OCR
+    const TARGET_FONT_SIZE = 168;
+    const ocrScale = Math.max(1, TARGET_FONT_SIZE / (fontSize * bboxScale));
 
     const finalW = Math.round(cropW * ocrScale);
     const finalH = Math.round(cropH * ocrScale);
 
-    setCropInfo(`crop: ${Math.round(cropW)}x${Math.round(cropH)} → scaled: ${finalW}x${finalH}`);
+    setCropInfo(`crop: ${Math.round(cropW)}x${Math.round(cropH)} → scaled: ${finalW}x${finalH} (fontSize=${fontSize} → ${Math.round(fontSize * bboxScale * ocrScale)}px)`);
 
     canvas.width = finalW;
     canvas.height = finalH;
