@@ -1,8 +1,9 @@
 import { useState, useRef } from 'react';
 import { BrowserRouter, Routes, Route, Link, useNavigate } from 'react-router-dom';
-import { Home, FileText, Settings, HelpCircle, LogOut, ChevronRight, ScanText, Camera } from 'lucide-react';
+import { Home, FileText, Settings, HelpCircle, LogOut, ChevronRight, ScanText, Camera, ChevronsUpDown, ArrowLeftFromLine, ArrowRightFromLine, Smartphone } from 'lucide-react';
 import { OcrTestPage } from './pages/OcrTestPage';
 import { CameraOcrPage } from './pages/CameraOcrPage';
+import { IPhoneSerialPage } from './pages/IPhoneSerialPage';
 import { SideMenu, PopOver, ModalProvider, SnackbarProvider, useSnackbarContext } from 'tsp-form';
 import { clsx } from 'clsx';
 
@@ -91,22 +92,24 @@ function UserMenu({ collapsed }: { collapsed: boolean }) {
       triggerClassName="w-full"
       trigger={
         <button
-          className="h-12 w-full border-t border-line flex items-center gap-2 px-2 hover:bg-surface-hover transition-colors cursor-pointer"
+          className="flex items-center gap-2 py-2 px-2 rounded-lg transition-all text-item-fg hover:bg-item-hover-bg w-full cursor-pointer"
           onClick={() => setOpen(!open)}
         >
-          <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-primary-contrast text-sm font-medium shrink-0">
-            U
+          <div className="w-7.5 h-7.5 rounded-full bg-primary flex items-center justify-center text-primary-contrast text-xs font-semibold shrink-0">
+            JD
           </div>
           {!collapsed && (
-            <div className="flex flex-col items-start text-left min-w-0">
-              <span className="text-sm font-medium truncate">User</span>
-              <span className="text-xs opacity-60 truncate">Free Plan</span>
-            </div>
+            <>
+              <div className="flex-1 text-left truncate">
+                <span className="text-sm">John Doe</span>
+              </div>
+              <ChevronsUpDown size={14} className="opacity-50 shrink-0" />
+            </>
           )}
         </button>
       }
     >
-      <div className="py-1 min-w-[200px]">
+      <div className="py-1 w-[260px]">
         <UserSubMenu icon={<Settings size={14} />} label="Settings">
           <UserMenuItem label="General" onClick={() => handleAction('Settings > General')} />
           <UserSubMenu label="Theme">
@@ -139,6 +142,7 @@ const SideNav = () => {
     { icon: <Home size="1rem"/>, label: "Dashboard", to: '/' },
     { icon: <ScanText size="1rem"/>, label: "OCR Test", to: '/ocr-test' },
     { icon: <Camera size="1rem"/>, label: "Camera OCR", to: '/camera-ocr' },
+    { icon: <Smartphone size="1rem"/>, label: "iPhone Serial", to: '/iphone-serial' },
     { icon: <FileText size="1rem"/>, label: "Documents", to: '/docs' },
   ];
 
@@ -149,17 +153,29 @@ const SideNav = () => {
         onToggleCollapse={(collapsed) => setMenuCollapsed(collapsed)}
         linkFn={(to) => navigate(to)}
         className="bg-surface-shallow border-r border-line"
-        titleRenderer={(collapsed, handleToggle) => (
-          <div className="flex pointer-events-auto relative w-side-menu p-2" onClick={() => handleToggle()}>
-            <button
-              className="bg-primary text-primary-contrast w-8 h-8 shrink-0 cursor-pointer rounded-lg"
-              aria-label={collapsed ? "Expand menu" : "Collapse menu"}
-            >
-              {collapsed ? '>' : '<'}
-            </button>
-            <div className="flex justify-center items-center w-full cursor-pointer"
-                 style={{ visibility: collapsed ? 'hidden' : 'visible' }}>OCR Client
+        mobileToggleRenderer={(handleToggle) => (
+          <button
+            className="hover:bg-surface-hover w-8 h-8 shrink-0 cursor-pointer rounded-lg transition-all flex justify-center items-center"
+            aria-label="Expand menu"
+            onClick={() => handleToggle()}
+          >
+            <ArrowRightFromLine size={18} />
+          </button>
+        )}
+        titleRenderer={(collapsed, handleToggle, isMobile) => (
+          <div className="flex items-center pointer-events-auto w-side-menu p-2 transition-all" style={{ transform: collapsed && !isMobile ? 'translateX(calc(-1 * var(--spacing-side-menu) + var(--spacing-side-menu-min)))' : 'translateX(0)' }}>
+            <div className="flex items-center flex-1 cursor-pointer pl-2"
+                 style={{ opacity: collapsed ? 0 : 1, transition: 'opacity 0.3s ease' }}
+                 onClick={() => handleToggle()}>
+              <span className="font-semibold">OCR Client</span>
             </div>
+            <button
+              className="hover:bg-surface w-8 h-8 shrink-0 cursor-pointer rounded-lg transition-all flex justify-center items-center"
+              aria-label={collapsed ? "Expand menu" : "Collapse menu"}
+              onClick={() => handleToggle()}
+            >
+              {collapsed ? <ArrowRightFromLine size={18} /> : <ArrowLeftFromLine size={18} />}
+            </button>
           </div>
         )}
         items={(
@@ -167,7 +183,7 @@ const SideNav = () => {
             <div className="side-menu-content better-scroll">
               <div className={clsx('p-2 flex flex-col w-side-menu', menuCollapsed ? 'items-start' : '')}>
                 {menuItems.map((item, index) => (
-                  <Link key={index} className="flex py-1 rounded-lg transition-all text-item-fg hover:bg-item-hover-bg" to={item.to}>
+                  <Link key={index} className="flex py-1 rounded-lg transition-all text-item-fg hover:bg-item-hover-bg gap-2" to={item.to}>
                     <div className="flex justify-center items-center w-8 h-8">
                       {item.icon}
                     </div>
@@ -180,7 +196,9 @@ const SideNav = () => {
                 ))}
               </div>
             </div>
-            <UserMenu collapsed={menuCollapsed} />
+            <div className={clsx('border-t border-line py-2 pointer-events-auto', menuCollapsed ? 'px-0' : 'px-2')}>
+              <UserMenu collapsed={menuCollapsed} />
+            </div>
           </div>
         )}
       />
@@ -218,6 +236,7 @@ function App() {
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/ocr-test" element={<OcrTestPage />} />
                 <Route path="/camera-ocr" element={<CameraOcrPage />} />
+                <Route path="/iphone-serial" element={<IPhoneSerialPage />} />
                 <Route path="/docs" element={<Documents />} />
               </Routes>
             </div>
