@@ -1,7 +1,7 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import Tesseract, { PSM, OEM } from 'tesseract.js';
 import { Button, Select } from 'tsp-form';
-import { Camera, Upload, Image as ImageIcon } from 'lucide-react';
+import { Upload, Image as ImageIcon } from 'lucide-react';
 
 const SAMPLE_IMAGE = '/test-serial-imei/sample_serial.jpg';
 
@@ -41,7 +41,7 @@ const langDataOptions = [
 const whitelistOptions = [
   { value: '', label: 'None (all chars)' },
   { value: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', label: 'A-Z 0-9 only' },
-  { value: 'ABCDEFGHJKLMNPQRSTUVWXYZ0123456789', label: 'A-Z 0-9 (no I/O)' }, // Apple serial style
+  { value: 'ABCDEFGHJKLMNPQRSTUVWXYZ0123456789', label: 'A-Z 0-9 (no I/O)' },
   { value: '0123456789', label: '0-9 only (IMEI)' },
 ];
 
@@ -55,10 +55,8 @@ const preprocessOptions = [
 
 export function OcrDebugPage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const workerRef = useRef<Tesseract.Worker | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
 
   const [status, setStatus] = useState('Loading...');
   const [sourceImage, setSourceImage] = useState<string | null>(null);
@@ -67,13 +65,12 @@ export function OcrDebugPage() {
   const [oem, setOem] = useState(String(OEM.LSTM_ONLY));
   const [langData, setLangData] = useState('best');
   const [whitelist, setWhitelist] = useState('');
-  const [preprocess, setPreprocess] = useState('none');
+  const [preprocess, setPreprocess] = useState('sharpen');
   const [ocrResult, setOcrResult] = useState<string>('');
   const [serialResult, setSerialResult] = useState<string>('');
   const [processing, setProcessing] = useState(false);
   const [canvasDataUrl, setCanvasDataUrl] = useState<string>('');
   const [detectImageUrl, setDetectImageUrl] = useState<string>('');
-  const [cameraActive, setCameraActive] = useState(false);
   const [ocrTime, setOcrTime] = useState<number | null>(null);
   const [cropInfo, setCropInfo] = useState<string>('');
   const [detectedLabel, setDetectedLabel] = useState<string>('');
@@ -83,7 +80,6 @@ export function OcrDebugPage() {
   // Initialize/reinitialize worker when OEM or langData changes
   useEffect(() => {
     const init = async () => {
-      // Terminate existing worker
       if (workerRef.current) {
         await workerRef.current.terminate();
         workerRef.current = null;
@@ -94,14 +90,11 @@ export function OcrDebugPage() {
       const langLabel = langDataOptions.find(o => o.value === langData)?.label || langData;
       setStatus(`Loading OCR engine (${oemLabel}, ${langLabel})...`);
 
-      // Use fast or best language data
       const langPath = langData === 'fast'
         ? 'https://tessdata.projectnaptha.com/4.0.0_fast'
         : 'https://tessdata.projectnaptha.com/4.0.0_best';
 
-      const worker = await Tesseract.createWorker('eng', oemMode, {
-        langPath,
-      });
+      const worker = await Tesseract.createWorker('eng', oemMode, { langPath });
       workerRef.current = worker;
       setStatus('Ready - choose image source');
     };
@@ -109,19 +102,15 @@ export function OcrDebugPage() {
 
     return () => {
       workerRef.current?.terminate();
-      streamRef.current?.getTracks().forEach(t => t.stop());
     };
   }, [oem, langData]);
 
-  // Load sample image
-  const loadSampleImage = useCallback(() => {
+  const loadSampleImage = () => {
     setSourceImage(SAMPLE_IMAGE);
     setStatus('Sample image loaded');
-    stopCamera();
-  }, []);
+  };
 
-  // Handle file upload
-  const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -129,54 +118,9 @@ export function OcrDebugPage() {
     reader.onload = (ev) => {
       setSourceImage(ev.target?.result as string);
       setStatus('Uploaded image loaded');
-      stopCamera();
     };
     reader.readAsDataURL(file);
-  }, []);
-
-  // Start camera
-  const startCamera = useCallback(async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } }
-      });
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-      }
-      setCameraActive(true);
-      setSourceImage(null);
-      setStatus('Camera active - tap Snap to capture');
-    } catch (err) {
-      setStatus(`Camera error: ${err instanceof Error ? err.message : 'Unknown'}`);
-    }
-  }, []);
-
-  // Stop camera
-  const stopCamera = useCallback(() => {
-    streamRef.current?.getTracks().forEach(t => t.stop());
-    streamRef.current = null;
-    if (videoRef.current) videoRef.current.srcObject = null;
-    setCameraActive(false);
-  }, []);
-
-  // Snap photo from camera
-  const snapPhoto = useCallback(() => {
-    if (!videoRef.current || !canvasRef.current) return;
-
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const ctx = canvas.getContext('2d')!;
-    ctx.drawImage(video, 0, 0);
-
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
-    setSourceImage(dataUrl);
-    stopCamera();
-    setStatus('Photo captured');
-  }, [stopCamera]);
+  };
 
   const runOcr = async () => {
     if (!workerRef.current || !sourceImage || !canvasRef.current) return;
@@ -184,7 +128,6 @@ export function OcrDebugPage() {
     setProcessing(true);
     const startTime = performance.now();
 
-    // Load image to get dimensions
     const img = new Image();
     img.src = sourceImage;
     await new Promise(resolve => img.onload = resolve);
@@ -192,50 +135,63 @@ export function OcrDebugPage() {
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d')!;
 
-    // === PASS 1: Detect label at 100% (no scaling) ===
+    // === PASS 1: Detect label at reduced size for speed ===
     setSrcInfo(`${img.naturalWidth}x${img.naturalHeight}`);
 
-    setStatus('Pass 1: Detecting label at 100%...');
-    canvas.width = img.naturalWidth;
-    canvas.height = img.naturalHeight;
-    ctx.drawImage(img, 0, 0);
+    // Resize to max 1200px width for detection (balance speed vs accuracy)
+    const DETECT_MAX_WIDTH = 1200;
+    const detectScale = Math.min(1, DETECT_MAX_WIDTH / img.naturalWidth);
+    canvas.width = Math.round(img.naturalWidth * detectScale);
+    canvas.height = Math.round(img.naturalHeight * detectScale);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
+    setStatus(`Pass 1: Detecting label at ${Math.round(detectScale * 100)}%...`);
     setPass1Info(`${canvas.width}x${canvas.height}`);
 
     const fullImageData = canvas.toDataURL('image/png');
     setDetectImageUrl(fullImageData);
 
-    // Run OCR to find "Serial" label - use SPARSE_TEXT for detection
     await workerRef.current.setParameters({
       tessedit_pageseg_mode: PSM.SPARSE_TEXT,
     });
-    // Pass { blocks: true } to get word/line bounding boxes
     const detectResult = await workerRef.current.recognize(fullImageData, {}, { blocks: true });
 
-    // Extract lines from blocks -> paragraphs -> lines
+    // Extract words from blocks with their bboxes
+    const allWords: Array<{ text: string; bbox: { x0: number; y0: number; x1: number; y1: number } }> = [];
     const allLines: Array<{ text: string; bbox: { x0: number; y0: number; x1: number; y1: number } }> = [];
+
     if (detectResult.data.blocks) {
       for (const block of detectResult.data.blocks) {
         for (const para of block.paragraphs || []) {
           for (const line of para.lines || []) {
             allLines.push({ text: line.text, bbox: line.bbox });
+            for (const word of line.words || []) {
+              allWords.push({ text: word.text, bbox: word.bbox });
+            }
           }
         }
       }
     }
 
-    // Find line containing "serial"
-    const serialLine = allLines.find(l =>
-      l.text.toLowerCase().includes('serial')
+    console.log('All words:', allWords.map(w => `"${w.text}" at ${w.bbox.x0},${w.bbox.y0}`));
+    console.log('All lines:', allLines.map(l => `"${l.text}" at ${l.bbox.x0},${l.bbox.y0}`));
+
+    // Find line containing "serial" - the line bbox spans the full width including the value
+    const serialLine = allLines.find(l => l.text.toLowerCase().includes('serial'));
+
+    setDetectedLabel(
+      serialLine
+        ? `Line: "${serialLine.text}" bbox: x0=${Math.round(serialLine.bbox.x0)} x1=${Math.round(serialLine.bbox.x1)} w=${Math.round(serialLine.bbox.x1 - serialLine.bbox.x0)}`
+        : `Not found. Lines: ${allLines.map(l => l.text).join(' | ')}`
     );
 
-    setDetectedLabel(serialLine ? `Found: "${serialLine.text}" at ${JSON.stringify(serialLine.bbox)}` : `Not found. Lines: ${allLines.map(l => l.text).join(' | ')}`);
+    const labelBbox = serialLine?.bbox;
 
-    if (!serialLine) {
+    if (!labelBbox) {
       const endTime = performance.now();
       setOcrTime(Math.round(endTime - startTime));
       setStatus('Could not find "Serial" label');
-      setOcrResult(`Lines found: ${allLines.map(l => l.text).join(' | ')}\n\n${detectResult.data.text}`);
+      setOcrResult(`Words: ${allWords.map(w => w.text).join(', ')}\nLines: ${allLines.map(l => l.text).join(' | ')}\n\n${detectResult.data.text}`);
       setSerialResult('Not found');
       setCanvasDataUrl('');
       setProcessing(false);
@@ -243,35 +199,51 @@ export function OcrDebugPage() {
     }
 
     // === PASS 2: Crop region and scale up ===
-    setStatus(`Pass 2: Cropping and scaling ${scale}%...`);
-    const bbox = serialLine.bbox;
+    setStatus(`Pass 2: Cropping and scaling...`);
 
-    // Expand crop area with padding and extend right for the value
-    const labelW = bbox.x1 - bbox.x0;
-    const labelH = bbox.y1 - bbox.y0;
-    const padding = 30;
+    // Scale bbox from detection size back to original image size
+    const bboxScale = 1 / detectScale;
+    const bbox = {
+      x0: labelBbox.x0 * bboxScale,
+      y0: labelBbox.y0 * bboxScale,
+      x1: labelBbox.x1 * bboxScale,
+      y1: labelBbox.y1 * bboxScale,
+    };
 
-    // Start from label, extend to right edge of image to capture value
+    // The line bbox only covers "Serial Number" label
+    // We need to extend to the right to capture the value
+    const lineW = bbox.x1 - bbox.x0;
+    const lineH = bbox.y1 - bbox.y0;
+    const padding = lineH * 0.5;
+
+    // Crop: start at label, extend to right edge of image to capture value
     const cropX = Math.max(0, bbox.x0 - padding);
     const cropY = Math.max(0, bbox.y0 - padding);
-    const cropW = Math.min(img.naturalWidth - cropX, img.naturalWidth - bbox.x0 + padding);
-    const cropH = labelH + padding * 2;
+    const cropW = img.naturalWidth - cropX; // extend to right edge
+    const cropH = lineH + padding * 2;
 
-    setCropInfo(`bbox: ${Math.round(bbox.x0)},${Math.round(bbox.y0)} ${Math.round(labelW)}x${Math.round(labelH)} | crop: ${Math.round(cropX)},${Math.round(cropY)} ${Math.round(cropW)}x${Math.round(cropH)}`);
+    // Scale to target height, but cap max dimensions
+    const TARGET_HEIGHT = 600;
+    const MAX_WIDTH = 2000;
+    let ocrScale = Math.max(1, TARGET_HEIGHT / cropH);
 
-    // Scale factor for extraction
-    const extractScale = parseInt(scale) / 100;
+    // Cap width if too large
+    if (cropW * ocrScale > MAX_WIDTH) {
+      ocrScale = MAX_WIDTH / cropW;
+    }
 
-    // Create scaled crop
-    canvas.width = cropW * extractScale;
-    canvas.height = cropH * extractScale;
-    ctx.drawImage(
-      img,
-      cropX, cropY, cropW, cropH, // source
-      0, 0, canvas.width, canvas.height // dest
-    );
+    const finalW = Math.round(cropW * ocrScale);
+    const finalH = Math.round(cropH * ocrScale);
 
-    // Apply preprocessing if selected
+    setCropInfo(`crop: ${Math.round(cropW)}x${Math.round(cropH)} → scaled: ${finalW}x${finalH}`);
+
+    canvas.width = finalW;
+    canvas.height = finalH;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, canvas.width, canvas.height);
+
+    // Apply preprocessing
     if (preprocess !== 'none') {
       const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const data = imgData.data;
@@ -314,28 +286,31 @@ export function OcrDebugPage() {
     const croppedImageData = canvas.toDataURL('image/png');
     setCanvasDataUrl(croppedImageData);
 
-    // Set params for extraction
-    const params: Partial<Tesseract.WorkerParams> = {
-      tessedit_pageseg_mode: parseInt(psm) as PSM,
-    };
-    if (whitelist) {
-      (params as Record<string, unknown>).tessedit_char_whitelist = whitelist;
-    }
-    await workerRef.current.setParameters(params);
+    // Set params for extraction - use SINGLE_LINE since we cropped one line
+    await workerRef.current.setParameters({
+      tessedit_pageseg_mode: PSM.SINGLE_LINE,
+    });
 
-    // Run OCR on cropped region
+    console.log('Pass 2: OCR on cropped image', finalW, 'x', finalH);
     const extractResult = await workerRef.current.recognize(croppedImageData);
     const text = extractResult.data.text;
+    console.log('Pass 2 result:', text);
 
     const endTime = performance.now();
     const elapsed = Math.round(endTime - startTime);
     setOcrTime(elapsed);
 
-    // Extract serial pattern
-    const matches = text.match(SERIAL_PATTERN);
+    // iOS format is "Label | Value" - extract value after separator
+    let valueText = text;
+    if (text.includes('|')) {
+      valueText = text.split('|').pop()?.trim() || text;
+    }
+
+    // Find serial pattern in the value portion
+    const matches = valueText.match(SERIAL_PATTERN);
     const serial = matches ? matches[0] : 'Not found';
 
-    setOcrResult(text);
+    setOcrResult(`Full: ${text}\nValue: ${valueText}\nSerial: ${serial}`);
     setSerialResult(serial);
     setStatus(`Done - 2-pass OCR - ${elapsed}ms total`);
     setProcessing(false);
@@ -345,7 +320,7 @@ export function OcrDebugPage() {
     <div className="max-w-4xl">
       <h1 className="text-title font-semibold mb-4">Serial OCR Debug</h1>
       <p className="text-fg/60 mb-4 text-sm">
-        Test OCR on serial number images with different scales and PSM modes.
+        Test OCR on serial number images. Pass 1 detects "Serial" label at 100%, Pass 2 crops and scales to 800px height for extraction.
       </p>
 
       {/* Image source buttons */}
@@ -365,17 +340,6 @@ export function OcrDebugPage() {
           className="hidden"
           onChange={handleFileUpload}
         />
-        {!cameraActive ? (
-          <Button onClick={startCamera} variant="outline">
-            <Camera size={16} className="mr-2" />
-            Camera
-          </Button>
-        ) : (
-          <Button onClick={snapPhoto} color="primary">
-            <Camera size={16} className="mr-2" />
-            Snap
-          </Button>
-        )}
       </div>
 
       {/* OCR Controls - Row 1 */}
@@ -462,21 +426,13 @@ export function OcrDebugPage() {
         </div>
       )}
 
-      {/* Camera preview */}
-      {cameraActive && (
-        <div className="mb-4">
-          <h3 className="text-sm font-semibold mb-2">Camera</h3>
-          <video ref={videoRef} className="w-full max-h-48 object-contain border border-line bg-black" playsInline muted />
-        </div>
-      )}
-
       {/* Images row */}
       <div className="grid grid-cols-3 gap-4 mb-4">
         {/* Source image */}
         <div>
           <h3 className="text-sm font-semibold mb-2">Source {srcInfo && `(${srcInfo})`}</h3>
           <div className="border border-line bg-black h-40 flex items-center justify-center">
-            {sourceImage && !cameraActive ? (
+            {sourceImage ? (
               <img src={sourceImage} alt="Source" className="max-w-full max-h-40 object-contain" />
             ) : (
               <span className="text-fg/50 text-sm">-</span>
@@ -499,7 +455,7 @@ export function OcrDebugPage() {
 
         {/* Pass 2: Cropped & scaled */}
         <div>
-          <h3 className="text-sm font-semibold mb-2">Pass 2: Crop ({scale}%)</h3>
+          <h3 className="text-sm font-semibold mb-2">Pass 2: Crop (800px h)</h3>
           <div className="border border-line bg-black h-40 flex items-center justify-center">
             {canvasDataUrl ? (
               <img src={canvasDataUrl} alt="Cropped" className="max-w-full max-h-40 object-contain" />

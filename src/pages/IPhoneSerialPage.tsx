@@ -26,6 +26,54 @@ interface DetectionState {
 const SERIAL_PATTERN = /[A-Z0-9]{10,12}/g;
 const IMEI_PATTERN = /\d{2}\s?\d{6}\s?\d{6}\s?\d|\d{15}/g;
 
+// Blur detection using Laplacian variance
+// Returns variance - higher = sharper, lower = blurrier
+function calculateBlurScore(canvas: HTMLCanvasElement): number {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return 0;
+
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = imageData.data;
+  const width = canvas.width;
+  const height = canvas.height;
+
+  // Convert to grayscale and apply Laplacian kernel
+  const gray: number[] = [];
+  for (let i = 0; i < data.length; i += 4) {
+    gray.push(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+  }
+
+  // Laplacian kernel: [0, 1, 0], [1, -4, 1], [0, 1, 0]
+  let sum = 0;
+  let sumSq = 0;
+  let count = 0;
+
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      const idx = y * width + x;
+      const laplacian =
+        gray[idx - width] +
+        gray[idx - 1] +
+        gray[idx + 1] +
+        gray[idx + width] -
+        4 * gray[idx];
+
+      sum += laplacian;
+      sumSq += laplacian * laplacian;
+      count++;
+    }
+  }
+
+  // Variance = E[X^2] - E[X]^2
+  const mean = sum / count;
+  const variance = sumSq / count - mean * mean;
+
+  return variance;
+}
+
+// Blur threshold - below this is too blurry
+const BLUR_THRESHOLD = 100;
+
 // Camera options
 const cameraOptions = [
   { value: 'environment', label: 'Back Camera' },
@@ -70,34 +118,13 @@ function formatImei(imei: string): string {
   return `${digits.slice(0, 2)} ${digits.slice(2, 8)} ${digits.slice(8, 14)} ${digits.slice(14)}`;
 }
 
-// Extract Serial Number from text
+// Extract Serial Number from text - just find alphanumeric patterns
 function extractSerialNumbers(text: string): string[] {
-  const serials: string[] = [];
-  const lines = text.split('\n');
+  const matches = text.match(SERIAL_PATTERN);
+  if (!matches) return [];
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    // Look for "Serial" keyword in current or previous line
-    const hasSerialLabel = /serial/i.test(line) || (i > 0 && /serial/i.test(lines[i - 1]));
-
-    if (hasSerialLabel) {
-      const matches = line.match(SERIAL_PATTERN);
-      if (matches) {
-        serials.push(...matches.filter(m => !isValidImei(m)));
-      }
-    }
-  }
-
-  // Fallback: look for any alphanumeric pattern that looks like a serial
-  if (serials.length === 0) {
-    const matches = text.match(SERIAL_PATTERN);
-    if (matches) {
-      // Filter out likely IMEIs (15 digits)
-      serials.push(...matches.filter(m => !/^\d{15}$/.test(m)));
-    }
-  }
-
-  return [...new Set(serials)];
+  // Filter out likely IMEIs (all digits, 15 chars)
+  return [...new Set(matches.filter(m => !/^\d{15}$/.test(m)))];
 }
 
 // Extract IMEIs from text
@@ -165,9 +192,13 @@ export function IPhoneSerialPage() {
   const [testImageLoaded, setTestImageLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState('Initializing...');
-  const [showLowResPreview, setShowLowResPreview] = useState(false);
+  const [showDebugCrop, setShowDebugCrop] = useState(false);
   const { addSnackbar } = useSnackbarContext();
   const [viewingImage, setViewingImage] = useState<string | null>(null);
+  const [debugCropImage, setDebugCropImage] = useState<string | null>(null);
+  const [debugOcrText, setDebugOcrText] = useState<string>('');
+  const [debugExtracted, setDebugExtracted] = useState<string[]>([]);
+  const [blurScore, setBlurScore] = useState<number>(0);
 
   // Track what we've already notified about
   const notifiedRef = useRef<{ serial: boolean; imei: boolean; all: boolean }>({
@@ -203,7 +234,7 @@ export function IPhoneSerialPage() {
         });
         workerRef.current = worker;
 
-        setStatus('Ready - Start camera or select test image');
+        setStatus('Ready');
       } catch (err) {
         setError(`Failed to init OCR: ${err instanceof Error ? err.message : 'Unknown'}`);
       }
@@ -240,7 +271,7 @@ export function IPhoneSerialPage() {
     if (!source || sourceWidth === 0) return null;
 
     // For low-res detection, use fixed small size for speed
-    // For full extraction, use moderate resolution (not full 1080p)
+    // For full extraction, use original resolution (we'll crop and scale the crop)
     if (lowRes) {
       // Fixed 320px width for fast detection
       const targetWidth = 320;
@@ -248,36 +279,37 @@ export function IPhoneSerialPage() {
       canvas.width = targetWidth;
       canvas.height = Math.round(sourceHeight * scale);
     } else {
-      // 640px width for extraction - good balance of speed vs accuracy
-      const targetWidth = 640;
-      const scale = Math.min(1, targetWidth / sourceWidth);
-      canvas.width = Math.round(sourceWidth * scale);
-      canvas.height = Math.round(sourceHeight * scale);
+      // Use original resolution - we'll crop a small area and scale that up
+      canvas.width = sourceWidth;
+      canvas.height = sourceHeight;
     }
 
     ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
     return canvas;
   }, [testImagePath, testImageLoaded]);
 
-  // Phase 1: Fast detection at low resolution - detect which screen is visible
+  // Phase 1: Fast detection at low resolution - detect which screen is visible and find label positions
   const runFastDetection = useCallback(async (canvas: HTMLCanvasElement): Promise<{
     hasIOSScreen: boolean;
     screenType: 'serial' | 'imei' | 'none';
+    labelBbox: { x0: number; y0: number; x1: number; y1: number } | null;
+    lowResWidth: number;
     rawText: string;
   }> => {
     const worker = workerRef.current;
-    if (!worker) return { hasIOSScreen: false, screenType: 'none', rawText: '' };
+    if (!worker) return { hasIOSScreen: false, screenType: 'none', labelBbox: null, lowResWidth: 0, rawText: '' };
 
     try {
       const imageData = canvas.toDataURL('image/jpeg', 0.5);
-      const result = await worker.recognize(imageData);
+      const result = await worker.recognize(imageData, {}, { blocks: true });
       const text = result.data.text.toLowerCase();
 
       // Detect which screen we're looking at
-      const hasSerialLabel = /serial\s*(number)?/i.test(text);
-      const hasImeiLabel = /imei/i.test(text);
+      const hasSerialLabel = /serial/i.test(result.data.text);
+      const hasImeiLabel = /imei/i.test(result.data.text);
 
       let screenType: 'serial' | 'imei' | 'none' = 'none';
+      let labelBbox: { x0: number; y0: number; x1: number; y1: number } | null = null;
 
       if (hasImeiLabel && !hasSerialLabel) {
         screenType = 'imei';
@@ -292,37 +324,96 @@ export function IPhoneSerialPage() {
         } else if (hasSerialPattern && !hasImeiPattern) {
           screenType = 'serial';
         } else {
-          // Default to whichever label appears first/more prominently
           screenType = text.indexOf('imei') < text.indexOf('serial') ? 'imei' : 'serial';
         }
       }
 
-      const hasIOSScreen = screenType !== 'none';
+      // Find the label position from word bounding boxes
+      if (screenType !== 'none' && result.data.blocks) {
+        const targetLabel = screenType === 'serial' ? /serial/i : /imei/i;
+        outer: for (const block of result.data.blocks) {
+          for (const para of block.paragraphs) {
+            for (const line of para.lines) {
+              for (const word of line.words) {
+                if (targetLabel.test(word.text)) {
+                  // Use the whole line bbox for better cropping
+                  labelBbox = line.bbox;
+                  break outer;
+                }
+              }
+            }
+          }
+        }
+      }
 
-      return { hasIOSScreen, screenType, rawText: result.data.text };
+      const hasIOSScreen = screenType !== 'none';
+      // Return low-res canvas dimensions so we can scale to full-res
+      return { hasIOSScreen, screenType, labelBbox, lowResWidth: canvas.width, rawText: result.data.text };
     } catch {
-      return { hasIOSScreen: false, screenType: 'none', rawText: '' };
+      return { hasIOSScreen: false, screenType: 'none', labelBbox: null, lowResWidth: 0, rawText: '' };
     }
   }, []);
 
-  // Phase 2: Full resolution extraction - only extract the relevant field
+  // Phase 2: Full resolution extraction - crop to label area and extract
   const runFullExtraction = useCallback(async (
     canvas: HTMLCanvasElement,
-    screenType: 'serial' | 'imei'
+    screenType: 'serial' | 'imei',
+    labelBbox: { x0: number; y0: number; x1: number; y1: number } | null,
+    lowResWidth: number
   ): Promise<{
     serials: string[];
     imeis: string[];
+    cropImage: string | null;
+    ocrText: string;
   }> => {
     const worker = workerRef.current;
-    if (!worker) return { serials: [], imeis: [] };
+    if (!worker) return { serials: [], imeis: [], cropImage: null, ocrText: '' };
 
     try {
-      // Use single block mode for better text recognition
+      let imageData: string;
+      let cropImage: string | null = null;
+
+      // If we have label position, crop to that area at full resolution
+      if (labelBbox && lowResWidth > 0) {
+        // Scale bbox from low-res coordinates to full-res
+        const scaleUp = canvas.width / lowResWidth;
+        const labelHeight = (labelBbox.y1 - labelBbox.y0) * scaleUp;
+        const padding = labelHeight * 0.5; // Add padding above to avoid cutting text
+
+        // Crop area: from label position with padding, extend right
+        const cropX = Math.max(0, labelBbox.x0 * scaleUp);
+        const cropY = Math.max(0, labelBbox.y0 * scaleUp - padding);
+        const cropWidth = Math.min(canvas.width - cropX, (labelBbox.x1 - labelBbox.x0) * scaleUp * 5);
+        const cropHeight = Math.min(canvas.height - cropY, labelHeight * 3 + padding);
+
+        // Scale crop to target height for consistent OCR quality
+        const TARGET_HEIGHT = 800;
+        const ocrScale = Math.max(1, TARGET_HEIGHT / cropHeight); // Don't shrink, only enlarge
+
+        const cropCanvas = document.createElement('canvas');
+        cropCanvas.width = Math.round(cropWidth * ocrScale);
+        cropCanvas.height = Math.round(cropHeight * ocrScale);
+        const ctx = cropCanvas.getContext('2d')!;
+
+        // Use better image scaling
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(canvas, cropX, cropY, cropWidth, cropHeight, 0, 0, cropCanvas.width, cropCanvas.height);
+
+        imageData = cropCanvas.toDataURL('image/png'); // PNG for better quality
+
+        // For debug preview, show the scaled version
+        cropImage = imageData;
+      } else {
+        // Fallback to full image
+        imageData = canvas.toDataURL('image/jpeg', 0.9);
+      }
+
+      // Use single line mode for serial (it's one line), single block for IMEI
       await worker.setParameters({
-        tessedit_pageseg_mode: PSM.SINGLE_BLOCK,
+        tessedit_pageseg_mode: screenType === 'serial' ? PSM.SINGLE_LINE : PSM.SINGLE_BLOCK,
       });
 
-      const imageData = canvas.toDataURL('image/jpeg', 0.9);
       const result = await worker.recognize(imageData);
       const text = result.data.text;
 
@@ -334,13 +425,13 @@ export function IPhoneSerialPage() {
       // Only extract the relevant field based on screen type
       if (screenType === 'serial') {
         const serials = extractSerialNumbers(text);
-        return { serials, imeis: [] };
+        return { serials, imeis: [], cropImage, ocrText: text };
       } else {
         const imeis = extractImeis(text);
-        return { serials: [], imeis };
+        return { serials: [], imeis, cropImage, ocrText: text };
       }
     } catch {
-      return { serials: [], imeis: [] };
+      return { serials: [], imeis: [], cropImage: null, ocrText: '' };
     }
   }, []);
 
@@ -359,7 +450,7 @@ export function IPhoneSerialPage() {
     isProcessingRef.current = true;
 
     try {
-      // Phase 1: Fast detection at low resolution
+      // Step 1: Capture frame and check blur FIRST (fastest check)
       const lowResCanvas = captureFrame(true);
       if (!lowResCanvas) {
         isProcessingRef.current = false;
@@ -367,10 +458,23 @@ export function IPhoneSerialPage() {
         return;
       }
 
-      const { hasIOSScreen, screenType } = await runFastDetection(lowResCanvas);
+      const blur = calculateBlurScore(lowResCanvas);
+      setBlurScore(blur);
+
+      if (blur < BLUR_THRESHOLD) {
+        setStatus('Blurry - hold steady');
+        isProcessingRef.current = false;
+        setTimeout(() => {
+          detectLoopRef.current = requestAnimationFrame(runDetectionLoop);
+        }, 50); // Fast retry for blur
+        return;
+      }
+
+      // Step 2: Fast detection to find label position
+      const { hasIOSScreen, screenType, labelBbox, lowResWidth } = await runFastDetection(lowResCanvas);
 
       if (!hasIOSScreen || screenType === 'none') {
-        setStatus('Point camera at iPhone Settings > About screen...');
+        setStatus('Looking for Serial/IMEI...');
         setDetection(prev => ({
           ...prev,
           phase: 'scanning',
@@ -384,9 +488,9 @@ export function IPhoneSerialPage() {
         return;
       }
 
-      // Phase 2: Full resolution extraction - only for the detected screen type
+      // Step 3: Full resolution extraction on cropped + scaled area
       const screenLabel = screenType === 'serial' ? 'Serial Number' : 'IMEI';
-      setStatus(`${screenLabel} screen detected - extracting...`);
+      setStatus(`${screenLabel} - extracting...`);
       setDetection(prev => ({ ...prev, phase: 'detecting', currentScreen: screenType }));
 
       const fullResCanvas = captureFrame(false);
@@ -396,7 +500,14 @@ export function IPhoneSerialPage() {
         return;
       }
 
-      const { serials, imeis } = await runFullExtraction(fullResCanvas, screenType);
+      const { serials, imeis, cropImage, ocrText } = await runFullExtraction(fullResCanvas, screenType, labelBbox, lowResWidth);
+
+      // Update debug info
+      if (cropImage) {
+        setDebugCropImage(cropImage);
+      }
+      setDebugOcrText(ocrText);
+      setDebugExtracted(screenType === 'serial' ? serials : imeis);
 
       // Capture current frame as image data URL for potential storage
       const currentFrameImage = fullResCanvas.toDataURL('image/jpeg', 0.8);
@@ -529,7 +640,7 @@ export function IPhoneSerialPage() {
         await videoRef.current.play();
       }
       setIsCameraActive(true);
-      setStatus('Scanning for iPhone About screen...');
+      setStatus('Scanning...');
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error';
       if (message.includes('Permission denied') || message.includes('NotAllowedError')) {
@@ -571,7 +682,7 @@ export function IPhoneSerialPage() {
     setTestImagePath(path);
     setTestImageLoaded(false);
     if (!path) {
-      setStatus('Ready - Start camera or select test image');
+      setStatus('Ready');
     } else {
       setStatus('Loading test image...');
     }
@@ -657,9 +768,9 @@ export function IPhoneSerialPage() {
         </Button>
 
         <LabeledCheckbox
-          label="Show low-res preview"
-          checked={showLowResPreview}
-          onChange={(e) => setShowLowResPreview(e.target.checked)}
+          label="Show crop area"
+          checked={showDebugCrop}
+          onChange={(e) => setShowDebugCrop(e.target.checked)}
         />
       </div>
 
@@ -684,26 +795,42 @@ export function IPhoneSerialPage() {
             </>
           )}
           <span className="text-fg/60">|</span>
-          <span className="text-sm text-fg/70">{status}</span>
-          <span className="ml-auto text-sm text-fg/50">
+          <span className="text-sm text-fg/70 truncate">{status}</span>
+          <span className="ml-auto text-sm text-fg/50 shrink-0">
             {detection.frameCount} frames
           </span>
         </div>
 
-        {/* Confidence meter - always visible */}
-        <div className="mt-2">
-          <div className="flex justify-between text-xs text-fg/60 mb-1">
-            <span>Confidence</span>
-            <span>{detection.confidence}%</span>
+        {/* Blur & Confidence meters */}
+        <div className="mt-2 grid grid-cols-2 gap-4">
+          <div>
+            <div className="flex justify-between text-xs text-fg/60 mb-1">
+              <span>Sharpness</span>
+              <span>{Math.round(blurScore)}</span>
+            </div>
+            <div className="h-2 bg-surface-shallow rounded-full overflow-hidden">
+              <div
+                className={`h-full transition-all duration-300 ${
+                  blurScore >= BLUR_THRESHOLD ? 'bg-success' : 'bg-danger'
+                }`}
+                style={{ width: `${Math.min(100, (blurScore / BLUR_THRESHOLD) * 100)}%` }}
+              />
+            </div>
           </div>
-          <div className="h-2 bg-surface-shallow rounded-full overflow-hidden">
-            <div
-              className={`h-full transition-all duration-300 ${
-                detection.confidence >= 80 ? 'bg-success' :
-                detection.confidence >= 50 ? 'bg-warning' : 'bg-danger'
-              }`}
-              style={{ width: `${detection.confidence}%` }}
-            />
+          <div>
+            <div className="flex justify-between text-xs text-fg/60 mb-1">
+              <span>Confidence</span>
+              <span>{detection.confidence}%</span>
+            </div>
+            <div className="h-2 bg-surface-shallow rounded-full overflow-hidden">
+              <div
+                className={`h-full transition-all duration-300 ${
+                  detection.confidence >= 80 ? 'bg-success' :
+                  detection.confidence >= 50 ? 'bg-warning' : 'bg-danger'
+                }`}
+                style={{ width: `${detection.confidence}%` }}
+              />
+            </div>
           </div>
         </div>
       </div>
@@ -730,7 +857,14 @@ export function IPhoneSerialPage() {
             muted
           />
         )}
-        <canvas ref={canvasRef} className={showLowResPreview ? 'absolute top-2 right-2 w-32 border border-white/50' : 'hidden'} />
+        <canvas ref={canvasRef} className="hidden" />
+        {showDebugCrop && debugCropImage && (
+          <img
+            src={debugCropImage}
+            alt="Crop debug"
+            className="absolute top-2 right-2 max-w-48 max-h-32 border-2 border-warning object-contain bg-black"
+          />
+        )}
 
         {!isCameraActive && !testImagePath && (
           <div className="absolute inset-0 flex items-center justify-center text-white/50 flex-col gap-2">
@@ -749,19 +883,33 @@ export function IPhoneSerialPage() {
         )}
       </div>
 
-      {/* Live candidates - fixed height, always visible */}
-      <div className="mb-4 p-2 bg-surface-shallow rounded-lg h-16">
-        <div className="grid grid-cols-2 gap-4 text-xs h-full">
-          <div className="overflow-hidden">
-            <div className="text-fg/50 mb-1">Serial Candidates ({detection.serialCandidates.length})</div>
+      {/* Debug info - OCR output and candidates */}
+      <div className="mb-4 p-2 bg-surface-shallow rounded-lg text-xs">
+        <div className="grid grid-cols-2 gap-4">
+          {/* Last OCR output */}
+          <div>
+            <div className="text-fg/50 mb-1">Last OCR → Extracted</div>
             <div className="font-mono truncate">
-              {[...new Set(detection.serialCandidates)].slice(-3).join(', ') || '-'}
+              "{debugOcrText.trim() || '-'}" → [{debugExtracted.join(', ') || 'none'}]
             </div>
           </div>
-          <div className="overflow-hidden">
-            <div className="text-fg/50 mb-1">IMEI Candidates ({detection.imeiCandidates.length})</div>
+          {/* Candidate counts */}
+          <div>
+            <div className="text-fg/50 mb-1">Candidates (value: count)</div>
             <div className="font-mono truncate">
-              {[...new Set(detection.imeiCandidates)].slice(-3).join(', ') || '-'}
+              {(() => {
+                const candidates = detection.currentScreen === 'imei'
+                  ? detection.imeiCandidates
+                  : detection.serialCandidates;
+                if (candidates.length === 0) return '-';
+                const counts = new Map<string, number>();
+                candidates.forEach(v => counts.set(v, (counts.get(v) || 0) + 1));
+                return Array.from(counts.entries())
+                  .sort((a, b) => b[1] - a[1])
+                  .slice(0, 3)
+                  .map(([v, c]) => `${v}:${c}`)
+                  .join(', ');
+              })()}
             </div>
           </div>
         </div>
