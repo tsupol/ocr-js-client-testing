@@ -5,7 +5,13 @@
       "Bash(npm install)",
       "Bash(npx tsc:*)",
       "Bash(cmd.exe /c \"npm install\")",
-      "Bash(cmd.exe /c \"npm install tesseract.js\")"
+      "Bash(cmd.exe /c \"npm install tesseract.js\")",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nAdd iPhone Serial/IMEI scanner page\n\nTwo-phase OCR detection with multi-frame validation for extracting\nSerial Number and IMEI from iPhone Settings > About screen.\nEOF\n\\)\")",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:tesseract.projectnaptha.com)",
+      "WebFetch(domain:raw.githubusercontent.com)"
     ]
   }
 }

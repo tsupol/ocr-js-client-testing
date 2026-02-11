@@ -1,9 +1,10 @@
 import { useState, useRef } from 'react';
 import { BrowserRouter, Routes, Route, Link, useNavigate } from 'react-router-dom';
-import { Home, FileText, Settings, HelpCircle, LogOut, ChevronRight, ScanText, Camera, ChevronsUpDown, ArrowLeftFromLine, ArrowRightFromLine, Smartphone } from 'lucide-react';
+import { Home, FileText, Settings, HelpCircle, LogOut, ChevronRight, ScanText, Camera, ChevronsUpDown, ArrowLeftFromLine, ArrowRightFromLine, Smartphone, Bug } from 'lucide-react';
 import { OcrTestPage } from './pages/OcrTestPage';
 import { CameraOcrPage } from './pages/CameraOcrPage';
 import { IPhoneSerialPage } from './pages/IPhoneSerialPage';
+import { OcrDebugPage } from './pages/OcrDebugPage';
 import { SideMenu, PopOver, ModalProvider, SnackbarProvider, useSnackbarContext } from 'tsp-form';
 import { clsx } from 'clsx';
 
@@ -143,6 +144,7 @@ const SideNav = () => {
     { icon: <ScanText size="1rem"/>, label: "OCR Test", to: '/ocr-test' },
     { icon: <Camera size="1rem"/>, label: "Camera OCR", to: '/camera-ocr' },
     { icon: <Smartphone size="1rem"/>, label: "iPhone Serial", to: '/iphone-serial' },
+    { icon: <Bug size="1rem"/>, label: "OCR Debug", to: '/ocr-debug' },
     { icon: <FileText size="1rem"/>, label: "Documents", to: '/docs' },
   ];
 
@@ -163,7 +165,7 @@ const SideNav = () => {
           </button>
         )}
         titleRenderer={(collapsed, handleToggle, isMobile) => (
-          <div className="flex items-center pointer-events-auto w-side-menu p-2 transition-all" style={{ transform: collapsed && !isMobile ? 'translateX(calc(-1 * var(--spacing-side-menu) + var(--spacing-side-menu-min)))' : 'translateX(0)' }}>
+          <div key="title" className="flex items-center pointer-events-auto w-side-menu p-2 transition-all" style={{ transform: collapsed && !isMobile ? 'translateX(calc(-1 * var(--spacing-side-menu) + var(--spacing-side-menu-min)))' : 'translateX(0)' }}>
             <div className="flex items-center flex-1 cursor-pointer pl-2"
                  style={{ opacity: collapsed ? 0 : 1, transition: 'opacity 0.3s ease' }}
                  onClick={() => handleToggle()}>
@@ -237,6 +239,7 @@ function App() {
                 <Route path="/ocr-test" element={<OcrTestPage />} />
                 <Route path="/camera-ocr" element={<CameraOcrPage />} />
                 <Route path="/iphone-serial" element={<IPhoneSerialPage />} />
+                <Route path="/ocr-debug" element={<OcrDebugPage />} />
                 <Route path="/docs" element={<Documents />} />
               </Routes>
             </div>

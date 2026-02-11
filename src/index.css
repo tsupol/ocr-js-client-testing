@@ -33,7 +33,7 @@
     --color-line: rgba(222, 220, 209, 0.12);
     --color-link: #0070f3;
 
-    --color-surface: #202020;
+    --color-surface: #1e1e1e;
     --color-surface-hover: #2a2a2a;
     --color-surface-shallow: #111111;
     --color-surface-elevated: #303030;
@@ -51,7 +51,7 @@
     --color-secondary-active: #5300a8;
     --color-secondary-contrast: #ffffff;
 
-    --spacing-control-y: 0.625rem;
+    --spacing-control-y: 0.375rem;
     --spacing-control-x: 1rem;
     --spacing-label-x: 0.25rem;
     --spacing-control-compact-y: .25rem;
@@ -60,26 +60,31 @@
     --spacing-control-relaxed-x: 1.5rem;
     --radius-control: .5rem;
 
+    --text-base: 0.875rem; /* 14px */
+    --text-base--letter-spacing: 0em;
+    --text-base--line-height: 1.5;
+    --text-base--font-weight: 500;
+
     --color-control-text: var(--color-fg);
-    --text-control: 1rem;
+    --text-control: var(--text-base);
     --text-control--letter-spacing: 0em;
     --text-control--line-height: 1.5;
-    --text-control--font-weight: 400;
+    --text-control--font-weight: 500;
 
     --spacing-option-y: 0.5rem;
     --spacing-option-x: 1rem;
     --radius-option: .5rem;
-    --text-option: .825rem;
+    --text-option: var(--text-base);
     --text-option--letter-spacing: 0em;
     --text-option--line-height: 1.5;
 
     --space-scrollbar-track: .5rem;
     --color-scrollbar-track: rgba(125, 125, 125, 0.1);
     --color-scrollbar-thumb: rgba(125, 125, 125, 0.25);
-    --color-control-bg: transparent;
+    --color-control-bg: rgba(125, 125, 125, 0.1);
     --color-control-placeholder: #676767;
     --text-control-placeholder: 1rem;
-    --text-control-placeholder--font-weight: 400;
+    --text-control-placeholder--font-weight: 500;
     --text-control-placeholder--letter-spacing: 0em;
     --text-control-placeholder--line-height: 1.5;
     --text-control-placeholder--font-style: italic;
@@ -98,15 +103,12 @@
     --spacing-title-x: 1rem;
     --spacing-title-h: calc(var(--spacing-title-y) * 2 + var(--text-title) * var(--text-title--line-height));
 
-    --text-base: 1rem;
-    --text-base--letter-spacing: 0em;
-    --text-base--line-height: 1.5;
-    --text-base--font-weight: 400;
-
     --font-weight-button: 600;
 
+    /* added */
     --spacing-nav: 3rem;
 
+    /* side menu */
     --spacing-side-menu: 280px;
     --spacing-side-menu-min: 3.075rem;
 
@@ -123,10 +125,27 @@
     --color-item-active-border: var(--color-primary);
 }
 
-html, body {
+html {
+    font-size: 16px;
+}
+
+/* iPad and iPhone - larger base font */
+@media only screen and (max-width: 1024px) and (-webkit-min-device-pixel-ratio: 2) {
+    html {
+        font-size: 18px;
+    }
+}
+
+@media only screen and (max-width: 430px) and (-webkit-min-device-pixel-ratio: 2) {
+    html {
+        font-size: 20px;
+    }
+}
+
+body {
     background: var(--color-bg);
     color: var(--color-fg);
-    font-family: "Inter", "Roboto", "Manrope", "DM Sans", sans-serif;
+    font-family: "Zalando Sans", "Roboto", "Inter", "Manrope", "DM Sans", sans-serif;
     font-size: var(--text-base);
     width: 100vw;
     line-height: var(--text-base--line-height);
@@ -138,7 +157,7 @@ html, body {
 }
 
 .page-content {
-    padding: 1rem 0;
+    padding: 2rem 0 0 0;
 }
 
 @media (min-width: 768px) {
